@@ -16,7 +16,7 @@ O bootcamp é dividido em trilhas temáticas que cobrem desde fundamentos do Azu
 
 ### 🔹 Fundamentos da Plataforma Azure
 
-* Introdução à Experiência Microsoft Azure Cloud Native
+* Introdução à Experiência Microsoft Azure Cloud Native (ok)
 * Fundamentos da Plataforma de Aplicações no Azure
 * Desafio: Armazenando dados de um E-Commerce na Cloud
 * Mentoria: Live de Lançamento com especialistas da Microsoft
