@@ -1,3 +1,12 @@
+/**
+ * Terraform Configuration
+ * 
+ * Description: Cria - Resource Group, Azure SQL Server e Database, Storage Account
+ * Created By: Jacivaldo Carvalho
+ * Created Date: 2025-06-07
+ * Last Modified: 2025-06-07
+
+ */
 
 terraform {
   required_providers {

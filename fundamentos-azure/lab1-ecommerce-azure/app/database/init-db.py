@@ -1,3 +1,10 @@
+"""
+Script: init-db.py
+Description: Realiza query em um banco de dados no Azure.
+Author: Jacivaldo Carvalho
+Date Created: 2025-06-07
+Version: 1.0.0
+"""
 import os
 import pyodbc
 from dotenv import load_dotenv
