@@ -7,6 +7,7 @@
 terraform.tfstate.backup # Backup do estado
 .terraform.tfstate.lock.info # Lock do estado
 terraform.tfvars
+terraform.tfstate
 
 # azure
 azurerm
