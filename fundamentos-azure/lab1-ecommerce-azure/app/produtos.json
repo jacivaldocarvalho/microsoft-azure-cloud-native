@@ -1,0 +1,26 @@
+[
+    {
+        "nome": "Teste",
+        "descricao": "Teste Teste",
+        "preco": 20.0,
+        "imagem_url": "https://ecommercestorage4370.blob.core.windows.net/ecommerce-fotos/6539dc10-b98c-4b96-b190-c494ed896f31.jpg"
+    },
+    {
+        "nome": "Teste",
+        "descricao": "Teste",
+        "preco": 20.0,
+        "imagem_url": "https://ecommercestorage4370.blob.core.windows.net/ecommerce-fotos/5e8aaadd-4a78-4f55-b34b-fdf2e20f093e.jpg"
+    },
+    {
+        "nome": "Teste",
+        "descricao": "Teste",
+        "preco": 30.0,
+        "imagem_url": "https://ecommercestorage4370.blob.core.windows.net/ecommerce-fotos/61c91f57-59ba-4928-8e66-fd6a833a5d18.jpg"
+    },
+    {
+        "nome": "Celular 5G",
+        "descricao": "Celular mais moderno do mercado.",
+        "preco": 7000.0,
+        "imagem_url": "https://ecommercestorage4370.blob.core.windows.net/ecommerce-fotos/aed20ed1-73b0-4c56-83b7-aa080837df05.jpg"
+    }
+]
