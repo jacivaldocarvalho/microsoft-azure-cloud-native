@@ -8,6 +8,10 @@ terraform.tfstate.backup # Backup do estado
 .terraform.tfstate.lock.info # Lock do estado
 terraform.tfvars
 
+# azure
+azurerm
+random
+
 # Python files
 __pycache__/
 *.py[cod]
