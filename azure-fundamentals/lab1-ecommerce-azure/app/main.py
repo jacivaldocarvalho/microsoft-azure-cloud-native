@@ -4,8 +4,7 @@ import pymssql
 import uuid
 import json
 import os
-from dotenv import load_dotenv
-load_dotenv()
+from config import sql_settings
 #import pandas as pd
 
 
@@ -16,10 +15,15 @@ ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
 
 
 # Azure SQL
-SQL_SERVER   = os.getenv("SQL_SERVER")
-SQL_DATABASE = os.getenv("SQL_DATABASE")
-SQL_USERNAME = os.getenv("SQL_USERNAME")
-SQL_PASSWORD = os.getenv("SQL_PASSWORD")
+try:
+    sql_config = sql_settings()
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+SQL_SERVER = sql_config["SQL_SERVER"]
+SQL_DATABASE = sql_config["SQL_DATABASE"]
+SQL_USERNAME = sql_config["SQL_USERNAME"]
+SQL_PASSWORD = sql_config["SQL_PASSWORD"]
 
 # Título da aplicação
 st.title("Cadastro de Produto - E-Commerce na Cloud")
