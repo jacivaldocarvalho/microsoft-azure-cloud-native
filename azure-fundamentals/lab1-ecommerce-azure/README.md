@@ -38,7 +38,11 @@ lab1-ecommerce-azure/
 │   ├── outputs.tf
 │   ├── terraform.tfvars.example
 │   ├── tests/provisioning.tftest.hcl
-│   └── deploy.sh
+│   ├── deploy.sh
+│   └── destroy.sh
+├── scripts/
+│   ├── validate.sh          # Offline Python and Terraform checks
+│   └── validate-live.sh     # Read-only checks against deployed services
 ├── tests/
 │   ├── test_configuration.py
 │   ├── test_product_service.py
@@ -303,13 +307,29 @@ This lab demonstrates infrastructure as code, use of managed Azure data services
 
 ## Testing and Observability
 
-Run the 17 offline configuration, initialization, product workflow, and storage tests from the lab directory:
+Run every offline Python and Terraform check from the lab directory:
 
 ```bash
-python -m unittest discover -s tests -v
+./scripts/validate.sh
 ```
 
-Phase 1 validates dependency installation, configuration errors, legacy variable compatibility, schema lookup from another directory, database failure exit status, and the initial Streamlit interface rendering without database operations. It does not validate live SQL connections or image uploads. No CI/CD workflow, monitoring configuration, dashboards, or health check endpoints are included. The application reports operation results through Streamlit messages.
+The script verifies installed Python dependencies, runs the 17 unit tests, initializes Terraform without a remote backend, checks formatting and configuration, and runs the six mocked Terraform tests. The path-scoped GitHub Actions workflow in `.github/workflows/lab1-quality.yml` runs the same script on pushes and pull requests without Azure credentials.
+
+For repeatable validation against an existing deployment, provide the write-only SQL value required by Terraform and run:
+
+```bash
+read -rsp "SQL administrator password: " TF_VAR_sql_password
+printf '\n'
+export TF_VAR_sql_password
+
+./scripts/validate-live.sh terraform.tfvars
+
+unset TF_VAR_sql_password
+```
+
+The live script requires an authenticated Azure CLI session and the SQL settings in `app/.env`. It obtains the storage resource names from Terraform outputs and retrieves the connection string directly through Azure CLI without printing it. It fails on Terraform drift or public container access, initializes the database twice, prints the live schema and products, and reports Blob metadata. It does not create products, upload images, apply Terraform changes, or print credentials. The Streamlit registration workflow remains a manual interface check.
+
+The application reports operation results through Streamlit messages. Monitoring, dashboards, and health check endpoints are outside this lab.
 
 ## Improvement Phases and Validation Status
 
@@ -319,7 +339,7 @@ Phase 1 validates dependency installation, configuration errors, legacy variable
 | 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Validated locally and in Azure on October 2, 2026 |
 | 3 | Consistent SQL and Blob writes, schema-based field validation, image metadata, and removal of local JSON writes | Validated locally and in Azure on October 2, 2026 |
 | 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Validated locally and in Azure on October 2, 2026 |
-| 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Planned |
+| 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Validated locally and in Azure on October 2, 2026; CI awaits first push |
 
 The screenshots above were regenerated after the successful phase 2 deployment.
 
@@ -372,6 +392,45 @@ Validation completed on October 2, 2026:
 - Running the database initializer twice against the existing Azure SQL database completed successfully and left the product query unchanged.
 - The deployment wrapper refreshed the six managed resources, reported no infrastructure changes, accepted a negative confirmation, and exited without applying the saved plan.
 - Historical saved plans were removed from version control, and newly generated plans are temporary and ignored.
+
+## Resource Cleanup
+
+Destroy the lab after capturing evidence and pushing the final commit to avoid continued Azure for Students usage. First verify the selected subscription and review a saved destruction plan:
+
+```bash
+az account show --query '{Name:name,Id:id,State:state}' --output table
+RESOURCE_GROUP="$(terraform -chdir=terraform output -raw resource_group_name)"
+read -rsp "SQL administrator password: " TF_VAR_sql_password
+printf '\n'
+export TF_VAR_sql_password
+
+./terraform/destroy.sh -var-file=terraform.tfvars
+
+unset TF_VAR_sql_password
+```
+
+The wrapper creates a temporary destruction plan and applies it only when `DESTROY` is entered exactly. Any other response cancels the operation. Removing the resource group also permanently removes the lab database and stored images, so retain the README evidence before confirming.
+
+After a successful destruction, verify both Terraform state and Azure Resource Manager:
+
+```bash
+terraform -chdir=terraform state list
+az group exists --name "$RESOURCE_GROUP"
+unset RESOURCE_GROUP
+```
+
+The state command should print no resources and the Azure CLI command should return `false`.
+
+### Phase 5 Validation Result
+
+Validation completed on October 2, 2026:
+
+- The consolidated offline script passed dependency checks, all 17 Python tests, Terraform formatting and validation, and all six mocked Terraform tests.
+- The live script found no Terraform drift and listed all six managed resources.
+- Two consecutive database initializations completed successfully before the script queried the deployed schema and existing products.
+- The script retrieved storage credentials through Azure CLI, confirmed that the Blob container had no public access, and listed the stored image metadata.
+- The cleanup wrapper generated a plan for exactly six resource deletions and cancelled safely when the confirmation did not match `DESTROY`.
+- The path-scoped GitHub Actions workflow is ready for validation on the first push containing this phase.
 
 ## Troubleshooting Partial Deployments
 
