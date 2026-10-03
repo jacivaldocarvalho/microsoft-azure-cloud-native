@@ -7,13 +7,47 @@
 
 A learning project that uses Terraform to provision Azure infrastructure and a Python/Streamlit web application to register and display products. Product records are stored in Azure SQL Database, and uploaded images are stored in Azure Blob Storage.
 
-This implementation is an incremental engineering improvement of the original lab completed during the **Microsoft Azure Cloud Native bootcamp from [DIO](https://www.dio.me/)**. It preserves the learning objective while improving reproducibility, infrastructure security, validation, and technical documentation.
+## Origin and Improvements
+
+This project is an engineering improvement of **Lab 1: Storing E-Commerce Data in the Cloud**, completed during the **Microsoft Azure Cloud Native bootcamp from [DIO](https://www.dio.me/)**. It preserves the challenge's learning objective and application workflow while extending the original implementation with:
+
+- reproducible Azure provisioning through Terraform;
+- private Blob access and a client-specific SQL firewall rule;
+- schema-based product validation and compensation for partial writes;
+- repeatable database initialization and command-line evidence;
+- automated Python and Terraform checks in GitHub Actions;
+- documented deployment, validation, troubleshooting, and cleanup workflows.
 
 ## Overview and Architecture
 
 The Streamlit application connects directly to Azure SQL Database using `pymssql` and uploads images using the Azure Storage SDK. It validates product data against the database limits before calling external services, stores image URLs alongside product data, and displays products in a three-column layout. The Streamlit server downloads private images using storage credentials and renders the resulting bytes. Azure SQL Database is the source of truth for product records.
 
 Terraform provisions a resource group, an Azure SQL logical server and database, a storage account, a private Blob container, and a firewall rule for the supplied client IPv4 address. The application runs in the environment where Streamlit is started; the repository does not provision application hosting or a serverless compute deployment.
+
+### Architecture Diagram
+
+```text
+       User browser                 Microsoft Azure
+            |              +----------------------------------+
+            | HTTP         | Resource Group                   |
+            v              |                                  |
++------------------------+ | +------------------------------+ |
+| Local workstation      | | | Azure SQL logical server     | |
+|                        | | | - client IPv4 firewall rule  | |
+| Streamlit / Python     |---|>| - SQL Database              | |
+|       |                | | | - dbo.Produtos               | |
+|       | Azure SDK      | | +------------------------------+ |
+|       +----------------|-|>| Storage account              | |
+|                        | | | - private Blob container     | |
+| Terraform CLI ---------|-|>| - product images             | |
++------------------------+ | +------------------------------+ |
+                           +----------------------------------+
+             pymssql ----------> product metadata
+             Azure SDK --------> authenticated image access
+             AzureRM ----------> resource lifecycle
+```
+
+The browser communicates only with the local Streamlit process. The application writes product metadata to Azure SQL through `pymssql` and accesses the private Blob container with the Azure Storage SDK and application credentials. Terraform manages the Azure resources independently of the application request flow.
 
 ## Project Structure
 
