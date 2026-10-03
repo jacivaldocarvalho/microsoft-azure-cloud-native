@@ -11,7 +11,7 @@ This implementation is an incremental engineering improvement of the original la
 
 ## Overview and Architecture
 
-The Streamlit application connects directly to Azure SQL Database using `pymssql` and uploads images using the Azure Storage SDK. It stores image URLs alongside product data and displays products in a three-column layout. The Streamlit server downloads private images using storage credentials and renders the resulting bytes. It also writes a local JSON record to `produtos.json` in the current working directory, including when a database insert fails.
+The Streamlit application connects directly to Azure SQL Database using `pymssql` and uploads images using the Azure Storage SDK. It validates product data against the database limits before calling external services, stores image URLs alongside product data, and displays products in a three-column layout. The Streamlit server downloads private images using storage credentials and renders the resulting bytes. Azure SQL Database is the source of truth for product records.
 
 Terraform provisions a resource group, an Azure SQL logical server and database, a storage account, a private Blob container, and a firewall rule for the supplied client IPv4 address. The application runs in the environment where Streamlit is started; the repository does not provision application hosting or a serverless compute deployment.
 
@@ -24,9 +24,9 @@ lab1-ecommerce-azure/
 │   ├── .python-version      # Python 3.12
 │   ├── config.py            # Shared environment loading and SQL settings
 │   ├── main.py              # Streamlit application
+│   ├── product_service.py   # Validation and cross-service registration workflow
 │   ├── storage.py           # Authenticated private image download
 │   ├── requirements.txt     # Validated dependency versions
-│   ├── produtos.json        # Existing local sample records
 │   └── database/
 │       ├── init-db.py       # Python database initializer
 │       ├── init-db.sh       # Wrapper for the Python initializer
@@ -203,12 +203,13 @@ Open the local URL printed by Streamlit. Registration and listing require a reac
 ## Application Features
 
 - Register products with a name, description, price, and optional image
-- Upload PNG and JPEG images to Azure Blob Storage
+- Validate product fields against the Azure SQL schema before upload
+- Upload PNG and JPEG images with their original extension and MIME type
 - Insert and retrieve product records in Azure SQL Database
+- Remove a newly uploaded Blob when the corresponding SQL insert fails
 - Display products in a three-column layout
 - Check required name and description fields and enforce a nonnegative price through the Streamlit input
 - Show success, warning, and error messages in the interface
-- Write product data to a local JSON file
 
 The application interface, database fields, and script messages retain their original Portuguese names.
 
@@ -288,7 +289,7 @@ This lab demonstrates infrastructure as code, use of managed Azure data services
 
 ## Testing and Observability
 
-Run the eight offline configuration, initializer, and storage tests from the lab directory:
+Run the 17 offline configuration, initialization, product workflow, and storage tests from the lab directory:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -302,7 +303,7 @@ Phase 1 validates dependency installation, configuration errors, legacy variable
 | ----- | ----- | ------ |
 | 1 | Local installation, dependency versions, shared configuration, initializer paths, and setup documentation | Verified on Python 3.12.3 |
 | 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Validated locally and in Azure on October 2, 2026 |
-| 3 | Consistent SQL and Blob writes, field validation, and local JSON behavior | Planned |
+| 3 | Consistent SQL and Blob writes, schema-based field validation, image metadata, and removal of local JSON writes | Validated locally and in Azure on October 2, 2026 |
 | 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Planned |
 | 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Planned |
 
@@ -329,7 +330,24 @@ Live validation completed on October 2, 2026, using an Azure for Students subscr
 - An anonymous request to the same Blob URL returned HTTP `409`, confirming that public Blob access was disabled.
 - Eight Python tests and six mocked Terraform tests passed locally.
 
-The validation also exposed a known phase 3 issue: descriptions longer than the `NVARCHAR(255)` database column fail during insertion after the image upload has already occurred. The current application can therefore leave an orphaned Blob and a local JSON entry after a failed SQL write. Field validation and consistent failure handling remain assigned to phase 3.
+Phase 2 exposed that descriptions longer than the `NVARCHAR(255)` column failed after image upload, leaving an orphaned Blob and a divergent local JSON entry. Phase 3 resolves this by validating schema limits before upload, removing automatic JSON persistence, preserving image extension and MIME type, and deleting a newly uploaded Blob when SQL insertion fails.
+
+### Phase 3 Validation Procedure
+
+1. Run the 17 offline tests and confirm the Streamlit application starts without an initialization error.
+2. Submit a product description with 256 characters and an image. The interface must reject it before SQL or Blob Storage changes.
+3. Register a valid product using a PNG or JPEG image. Confirm the SQL record and private image appear in Streamlit.
+4. List the container with the CLI command above. The new Blob must retain its original extension and report `image/png` or `image/jpeg` instead of `application/octet-stream`.
+5. Simulate an unavailable SQL database while keeping valid Storage credentials, then attempt a registration with an image. The interface must report the database failure and the Blob count must remain unchanged after compensation.
+6. Confirm that registration no longer creates or updates `produtos.json`.
+
+Live validation completed on October 2, 2026:
+
+- All 17 automated tests passed, including rejection of schema length violations before any external service call.
+- A valid product was stored in Azure SQL Database and listed by the application.
+- Its uploaded image retained the `.png` extension and reported `image/png` as its Blob content type.
+- A forced SQL failure left the Blob count unchanged at two, confirming successful compensation without an orphaned image.
+- Product registration did not recreate `produtos.json`, leaving Azure SQL Database as the source of truth.
 
 ## Troubleshooting Partial Deployments
 

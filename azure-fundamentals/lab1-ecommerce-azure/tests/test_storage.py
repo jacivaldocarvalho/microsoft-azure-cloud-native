@@ -9,6 +9,41 @@ import storage
 
 
 class PrivateImageTests(unittest.TestCase):
+    def test_upload_preserves_extension_and_content_type(self):
+        service = MagicMock()
+        file = MagicMock()
+        file.name = "product.PNG"
+        file.read.return_value = b"image-bytes"
+        with patch.object(
+            storage.BlobServiceClient, "from_connection_string", return_value=service
+        ):
+            result = storage.upload_product_image(
+                file, "test-only", "account", "products"
+            )
+        blob_name = result["blob_name"]
+        self.assertTrue(blob_name.endswith(".png"))
+        self.assertEqual(
+            result["url"],
+            f"https://account.blob.core.windows.net/products/{blob_name}",
+        )
+        blob = service.__enter__.return_value.get_blob_client.return_value
+        upload = blob.upload_blob.call_args
+        self.assertEqual(upload.args[0], b"image-bytes")
+        self.assertFalse(upload.kwargs["overwrite"])
+        self.assertEqual(
+            upload.kwargs["content_settings"].content_type, "image/png"
+        )
+
+    def test_compensation_deletes_the_uploaded_blob(self):
+        service = MagicMock()
+        with patch.object(
+            storage.BlobServiceClient, "from_connection_string", return_value=service
+        ):
+            storage.delete_product_image("image.jpg", "test-only", "products")
+        blob = service.__enter__.return_value.get_blob_client
+        blob.assert_called_once_with(container="products", blob="image.jpg")
+        blob.return_value.delete_blob.assert_called_once_with(delete_snapshots="include")
+
     def test_private_image_is_downloaded_with_application_credentials(self):
         service = MagicMock()
         service.__enter__.return_value.get_blob_client.return_value.download_blob.return_value.readall.return_value = b"image-bytes"

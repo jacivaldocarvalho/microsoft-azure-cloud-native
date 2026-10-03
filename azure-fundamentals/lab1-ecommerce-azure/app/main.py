@@ -1,12 +1,17 @@
 import streamlit as st
-from azure.storage.blob import BlobServiceClient
 import pymssql
-import uuid
-import json
 import os
 from config import sql_settings
-from storage import download_product_image
-#import pandas as pd
+from product_service import (
+    ProductRegistrationError,
+    ProductValidationError,
+    register_product,
+)
+from storage import (
+    delete_product_image,
+    download_product_image,
+    upload_product_image,
+)
 
 
 # Azure Blob
@@ -30,50 +35,48 @@ SQL_PASSWORD = sql_config["SQL_PASSWORD"]
 st.title("Cadastro de Produto - E-Commerce na Cloud")
 
 # Formulário para cadastro do produto
-product_name = st.text_input("Nome do Produto")
-description = st.text_area("Descrição do Produto")
-price = st.number_input("Preço do Produto", min_value=0.0, format="%.2f")
+product_name = st.text_input("Nome do Produto", max_chars=100)
+description = st.text_area("Descrição do Produto", max_chars=255)
+price = st.number_input(
+    "Preço do Produto", min_value=0.0, max_value=99999999.99, format="%.2f"
+)
 uploaded_file = st.file_uploader("Imagem do Produto", type=["png", "jpg", "jpeg"])
 
 
-# Função para enviar imagem para o Azure Blob Storage
 def upload_image(file):
-    try:
-        blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
-        container_client = blob_service_client.get_container_client(CONTAINER_NAME)
-        # Cria um nome único para a imagem
-        blob_name = f"{uuid.uuid4()}.jpg"
-        blob_client = container_client.get_blob_client(blob_name)
-        # Faz o upload da imagem
-        blob_client.upload_blob(file.read(), overwrite=True)
-        # Monta a URL de acesso à imagem
-        image_url = f"https://{ACCOUNT_NAME}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
-        return image_url
-    except Exception as e:
-        st.error(f"Erro ao enviar imagem: {e}")
-        return None
-    
+    return upload_product_image(
+        file, CONNECTION_STRING, ACCOUNT_NAME, CONTAINER_NAME
+    )
+
+
+def delete_image(blob_name):
+    delete_product_image(blob_name, CONNECTION_STRING, CONTAINER_NAME)
+
 
 # Função para inserir os dados do produto no Azure SQL Server usando pymssql
 def insert_product_sql(product_data):
-    try:
-        conn = pymssql.connect(server=SQL_SERVER, user=SQL_USERNAME, password=SQL_PASSWORD, database=SQL_DATABASE)
-        cursor = conn.cursor()
-     
-        # Insere os dados do produto
+    with pymssql.connect(
+        server=SQL_SERVER,
+        user=SQL_USERNAME,
+        password=SQL_PASSWORD,
+        database=SQL_DATABASE,
+    ) as connection:
+        cursor = connection.cursor()
         insert_query = """
         INSERT INTO dbo.Produtos (nome, descricao, preco, imagem_url)
         VALUES (%s, %s, %s, %s)
         """
-        cursor.execute(insert_query, (product_data["nome"], product_data["descricao"], product_data["preco"], product_data["imagem_url"]))
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"Erro ao inserir no Azure SQL: {e}")
-        return False
+        cursor.execute(
+            insert_query,
+            (
+                product_data["nome"],
+                product_data["descricao"],
+                product_data["preco"],
+                product_data["imagem_url"],
+            ),
+        )
+        connection.commit()
+    return True
 
 
 # Função para listar os produtos do Azure SQL Server
@@ -93,76 +96,56 @@ def list_products_sql():
         return []
 
 
-# Função para exibir a lista de produtos na tela   
+# Função para exibir a lista de produtos na tela
 def list_produtos_screen():
-        products = list_products_sql()
-        if products:
+    products = list_products_sql()
+    if products:
         # Define o número de cards por linha
-            cards_por_linha = 3
-            # Cria as colunas iniciais
-            cols = st.columns(cards_por_linha)
-            for i, product in enumerate(products):
-                col = cols[i % cards_por_linha]
-                with col:
-                    st.markdown(f"### {product['nome']}")
-                    st.write(f"**Descrição:** {product['descricao']}")
-                    st.write(f"**Preço:** R$ {product['preco']:.2f}")
-                    if product["imagem_url"]:
-                        try:
-                            image = download_product_image(
-                                product["imagem_url"], CONNECTION_STRING, ACCOUNT_NAME, CONTAINER_NAME
-                            )
-                            st.image(image, width=300)
-                        except Exception as exc:
-                            st.error(f"Erro ao carregar imagem: {exc}")
-                    st.markdown("---")
-                # A cada 'cards_por_linha' produtos, se ainda houver produtos, cria novas colunas
-                if (i + 1) % cards_por_linha == 0 and (i + 1) < len(products):
-                    cols = st.columns(cards_por_linha)
-        else:
-            st.info("Nenhum produto encontrado.")
+        cards_por_linha = 3
+        cols = st.columns(cards_por_linha)
+        for i, product in enumerate(products):
+            col = cols[i % cards_por_linha]
+            with col:
+                st.markdown(f"### {product['nome']}")
+                st.write(f"**Descrição:** {product['descricao']}")
+                st.write(f"**Preço:** R$ {product['preco']:.2f}")
+                if product["imagem_url"]:
+                    try:
+                        image = download_product_image(
+                            product["imagem_url"],
+                            CONNECTION_STRING,
+                            ACCOUNT_NAME,
+                            CONTAINER_NAME,
+                        )
+                        st.image(image, width=300)
+                    except Exception as exc:
+                        st.error(f"Erro ao carregar imagem: {exc}")
+                st.markdown("---")
+            if (i + 1) % cards_por_linha == 0 and (i + 1) < len(products):
+                cols = st.columns(cards_por_linha)
+    else:
+        st.info("Nenhum produto encontrado.")
 
 
 # Botão para cadastro do produto
 if st.button("Cadastrar Produto"):
-    if not product_name or not description or price is None:
-        st.warning("Preencha todos os campos obrigatórios!")
+    try:
+        product_data = register_product(
+            product_name,
+            description,
+            price,
+            uploaded_file,
+            upload_image,
+            insert_product_sql,
+            delete_image,
+        )
+    except ProductValidationError as exc:
+        st.warning(str(exc))
+    except ProductRegistrationError as exc:
+        st.error(str(exc))
     else:
-        # Envia a imagem (se houver) para o Azure Storage
-        image_url = ""
-        if uploaded_file is not None:
-            image_url = upload_image(uploaded_file)
-        
-        # Dados do produto
-        product_data = {
-            "nome": product_name,
-            "descricao": description,
-            "preco": price,
-            "imagem_url": image_url
-        }
-
-        # Insere os dados no Azure SQL Server
-        if insert_product_sql(product_data):
-            st.success("Produto cadastrado com sucesso no Azure SQL!")
-            list_produtos_screen()
-        else:
-            st.error("Houve um problema ao cadastrar o produto no Azure SQL.")
-
-        # Opcional: Salva os dados localmente (exemplo usando arquivo JSON)
-        file_path = "produtos.json"
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                try:
-                    produtos = json.load(f)
-                except json.JSONDecodeError:
-                    produtos = []
-        else:
-            produtos = []
-
-        produtos.append(product_data)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(produtos, f, ensure_ascii=False, indent=4)
-        
+        st.success("Produto cadastrado com sucesso no Azure SQL!")
+        list_produtos_screen()
         st.json(product_data)
 
 st.header("Listagem dos Produtos")
