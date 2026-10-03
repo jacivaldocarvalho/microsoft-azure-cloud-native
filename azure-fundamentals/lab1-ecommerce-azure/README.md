@@ -373,7 +373,7 @@ The application reports operation results through Streamlit messages. Monitoring
 | 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Validated locally and in Azure on October 2, 2026 |
 | 3 | Consistent SQL and Blob writes, schema-based field validation, image metadata, and removal of local JSON writes | Validated locally and in Azure on October 2, 2026 |
 | 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Validated locally and in Azure on October 2, 2026 |
-| 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Validated locally and in Azure on October 2, 2026; CI awaits first push |
+| 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Validated locally, in Azure, and in GitHub Actions on October 2, 2026 |
 
 The screenshots above were regenerated after the successful phase 2 deployment.
 
@@ -464,7 +464,7 @@ Validation completed on October 2, 2026:
 - Two consecutive database initializations completed successfully before the script queried the deployed schema and existing products.
 - The script retrieved storage credentials through Azure CLI, confirmed that the Blob container had no public access, and listed the stored image metadata.
 - The cleanup wrapper generated a plan for exactly six resource deletions and cancelled safely when the confirmation did not match `DESTROY`.
-- The path-scoped GitHub Actions workflow is ready for validation on the first push containing this phase.
+- The path-scoped GitHub Actions workflow completed successfully on `main`, running the consolidated validation job without Azure credentials.
 
 ## Troubleshooting Partial Deployments
 
