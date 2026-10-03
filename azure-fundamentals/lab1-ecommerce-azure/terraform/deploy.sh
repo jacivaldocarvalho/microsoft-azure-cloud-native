@@ -1,37 +1,38 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Carregar variáveis de ambiente do arquivo .env
-if [ -f .env ]; then
-  echo "Carregando variáveis do .env..."
-  export $(grep -v '^#' .env | xargs)
-else
-  echo "Arquivo .env não encontrado."
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PLAN_FILE="$(mktemp /tmp/lab1-ecommerce.XXXXXX.tfplan)"
+
+cleanup() {
+  rm -f -- "$PLAN_FILE"
+}
+trap cleanup EXIT
+
+if ! command -v terraform >/dev/null 2>&1; then
+  echo "Error: terraform is not installed or is not available in PATH." >&2
   exit 1
 fi
 
-# Inicializa Terraform se necessário
-if [ ! -d ".terraform" ]; then
-  echo "Executando terraform init..."
-  terraform init
-fi
+cd -- "$SCRIPT_DIR"
 
-# Executa o plano e salva em tfplan
-echo "Gerando plano Terraform..."
-terraform plan -out=tfplan
+echo "Initializing Terraform..."
+terraform init -input=false
 
-# Pergunta se deseja aplicar o plano
-read -p "Deseja aplicar este plano? (s/n): " CONFIRMAR
+echo "Checking Terraform formatting and configuration..."
+terraform fmt -check -recursive
+terraform validate
 
-if [[ "$CONFIRMAR" == "s" || "$CONFIRMAR" == "S" ]]; then
-  echo "Aplicando plano..."
-  terraform apply tfplan
-else
-  echo "Plano não aplicado."
-fi
+echo "Creating a saved execution plan..."
+terraform plan -input=false -out="$PLAN_FILE" "$@"
 
-#debug em caso de erro
-#terraform destroy -auto-approve
-#rm -rf .terraform terraform.tfstate*
-#terraform init
-#terraform plan -out plan.tfout
-#terraform apply plan.tfout
+read -r -p "Apply this plan? [y/N]: " confirmation
+case "$confirmation" in
+  y | Y | yes | YES)
+    echo "Applying the saved plan..."
+    terraform apply -input=false "$PLAN_FILE"
+    ;;
+  *)
+    echo "Plan not applied."
+    ;;
+esac

@@ -41,6 +41,7 @@ lab1-ecommerce-azure/
 │   └── deploy.sh
 ├── tests/
 │   ├── test_configuration.py
+│   ├── test_product_service.py
 │   └── test_storage.py
 └── README.md
 ```
@@ -107,11 +108,10 @@ az account show --query "{Name:name,Id:id,State:state}" --output table
 
 Confirm the student offer and remaining credit in the Azure portal. Azure SQL availability depends on both the subscription and region. The live validation documented below succeeded with the Basic SKU in `brazilsouth`.
 
-From the lab directory, keep the local variable file outside the repository until the Git ignore rules are revised in phase 4:
+From the lab directory, create a local variable file. Git ignores `terraform.tfvars` and other `*.tfvars` files while retaining `*.tfvars.example` templates:
 
 ```bash
-LAB_VARS=$(mktemp /tmp/lab1-phase2.XXXXXX.tfvars)
-cp terraform/terraform.tfvars.example "$LAB_VARS"
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
 Edit that file with the real subscription ID, a globally unique SQL server name, an allowed region, and your actual public IPv4 address. The example IP is a documentation placeholder. All Azure resources use the same `location`, which defaults to `brazilsouth`. This region was validated with the Azure for Students subscription used for this lab. The storage account name is optional: omitting it uses `prefix` plus a random suffix. When an explicit name is supplied, Terraform does not create an unused random resource.
@@ -126,10 +126,10 @@ terraform -chdir=terraform init
 terraform -chdir=terraform fmt -check -recursive
 terraform -chdir=terraform validate
 terraform -chdir=terraform test
-terraform -chdir=terraform plan -var-file="$LAB_VARS" -out=/tmp/lab1-phase2.tfplan
+terraform -chdir=terraform plan -var-file=terraform.tfvars -out=/tmp/lab1-phase2.tfplan
 ```
 
-Terraform tests use mocked providers and do not create Azure resources. Review the new live plan before applying it. Do not apply the historical `tfplan` or `plan.tfout` files committed in this repository. Use the direct commands here; `deploy.sh` will be revised in phase 4.
+Terraform tests use mocked providers and do not create Azure resources. Review the new live plan before applying it. Saved plans contain environment-specific data and are ignored by Git.
 
 After accepting the plan:
 
@@ -188,7 +188,21 @@ python app/database/init-db.py
 
 Alternatively, `bash app/database/init-db.sh` invokes the same initializer using `python3` from the active environment. The SQL file is resolved relative to the initializer, regardless of the working directory. A configuration or database failure returns a nonzero exit status.
 
-The schema creates `dbo.Produtos` with `id`, `nome`, `descricao`, `preco`, and `imagem_url` columns. Run it once on a new database; repeated initialization is not yet idempotent.
+The schema creates `dbo.Produtos` with `id`, `nome`, `descricao`, `preco`, and `imagem_url` columns only when the table does not already exist. Repeated initialization preserves the table and its records.
+
+### Optional Terraform Deployment Script
+
+The deployment wrapper runs initialization, formatting, validation, planning, and an interactive apply from the correct Terraform directory:
+
+```bash
+read -rsp "SQL administrator password: " TF_VAR_sql_password
+printf '\n'
+export TF_VAR_sql_password
+bash terraform/deploy.sh -var-file=terraform.tfvars
+unset TF_VAR_sql_password
+```
+
+Additional arguments are passed directly to `terraform plan`. The script stops on the first failed command, never evaluates an application `.env` file as shell input, stores its plan temporarily outside the repository, and removes that plan when it exits.
 
 ### 4. Run the Application
 
@@ -304,7 +318,7 @@ Phase 1 validates dependency installation, configuration errors, legacy variable
 | 1 | Local installation, dependency versions, shared configuration, initializer paths, and setup documentation | Verified on Python 3.12.3 |
 | 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Validated locally and in Azure on October 2, 2026 |
 | 3 | Consistent SQL and Blob writes, schema-based field validation, image metadata, and removal of local JSON writes | Validated locally and in Azure on October 2, 2026 |
-| 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Planned |
+| 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Validated locally and in Azure on October 2, 2026 |
 | 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Planned |
 
 The screenshots above were regenerated after the successful phase 2 deployment.
@@ -348,6 +362,16 @@ Live validation completed on October 2, 2026:
 - Its uploaded image retained the `.png` extension and reported `image/png` as its Blob content type.
 - A forced SQL failure left the Blob count unchanged at two, confirming successful compensation without an orphaned image.
 - Product registration did not recreate `produtos.json`, leaving Azure SQL Database as the source of truth.
+
+### Phase 4 Validation Result
+
+Validation completed on October 2, 2026:
+
+- All 17 Python tests and six mocked Terraform tests passed; Terraform formatting and configuration validation also succeeded.
+- Git ignore rules matched the local state, state backup, and variable file while keeping the example and provider lock files versioned.
+- Running the database initializer twice against the existing Azure SQL database completed successfully and left the product query unchanged.
+- The deployment wrapper refreshed the six managed resources, reported no infrastructure changes, accepted a negative confirmation, and exited without applying the saved plan.
+- Historical saved plans were removed from version control, and newly generated plans are temporary and ignored.
 
 ## Troubleshooting Partial Deployments
 

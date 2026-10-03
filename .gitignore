@@ -1,13 +1,21 @@
 # Terraform files
-.terraform/               # Diretório com plugins e cache
-*.tfstate                # Arquivos de estado
-*.tfstate.*              # Arquivos de estado temporários
-*.tfvars                 # Arquivos de variáveis sensíveis
-.terraform.lock.hcl      # Lock file de providers
-terraform.tfstate.backup # Backup do estado
-.terraform.tfstate.lock.info # Lock do estado
-terraform.tfvars
-terraform.tfstate
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+*.tfout
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+.terraformrc
+terraform.rc
 
 # azure
 azurerm
@@ -55,4 +63,4 @@ venv.bak/
 
 # System files
 .DS_Store
-Thumbs.db*.tfstate
+Thumbs.db

@@ -54,7 +54,9 @@ class ConfigurationTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
         cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
-        self.assertIn("CREATE TABLE dbo.Produtos", cursor.execute.call_args.args[0])
+        sql_script = cursor.execute.call_args.args[0]
+        self.assertIn("IF OBJECT_ID(N'dbo.Produtos', N'U') IS NULL", sql_script)
+        self.assertIn("CREATE TABLE dbo.Produtos", sql_script)
         connection.__enter__.return_value.commit.assert_called_once()
 
     def test_database_failure_returns_nonzero(self):
