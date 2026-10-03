@@ -7,13 +7,15 @@
 
 A learning project that uses Terraform to provision Azure infrastructure and a Python/Streamlit web application to register and display products. Product records are stored in Azure SQL Database, and uploaded images are stored in Azure Blob Storage.
 
-##  Overview and Architecture
+This implementation is an incremental engineering improvement of the original lab completed during the **Microsoft Azure Cloud Native bootcamp from [DIO](https://www.dio.me/)**. It preserves the learning objective while improving reproducibility, infrastructure security, validation, and technical documentation.
 
-The Streamlit application connects directly to Azure SQL Database using `pymssql` and uploads images using the Azure Storage SDK. It stores image URLs alongside product data and displays products in a three-column layout. It also writes a local JSON record to `produtos.json` in the current working directory, including when a database insert fails.
+## Overview and Architecture
 
-Terraform provisions a resource group, an Azure SQL logical server and database, and a storage account. The application runs in the environment where Streamlit is started; the repository does not provision application hosting or a serverless compute deployment.
+The Streamlit application connects directly to Azure SQL Database using `pymssql` and uploads images using the Azure Storage SDK. It stores image URLs alongside product data and displays products in a three-column layout. The Streamlit server downloads private images using storage credentials and renders the resulting bytes. It also writes a local JSON record to `produtos.json` in the current working directory, including when a database insert fails.
 
-##  Project Structure
+Terraform provisions a resource group, an Azure SQL logical server and database, a storage account, a private Blob container, and a firewall rule for the supplied client IPv4 address. The application runs in the environment where Streamlit is started; the repository does not provision application hosting or a serverless compute deployment.
+
+## Project Structure
 
 ```text
 lab1-ecommerce-azure/
@@ -22,25 +24,30 @@ lab1-ecommerce-azure/
 │   ├── .python-version      # Python 3.12
 │   ├── config.py            # Shared environment loading and SQL settings
 │   ├── main.py              # Streamlit application
+│   ├── storage.py           # Authenticated private image download
 │   ├── requirements.txt     # Validated dependency versions
 │   ├── produtos.json        # Existing local sample records
 │   └── database/
 │       ├── init-db.py       # Python database initializer
 │       ├── init-db.sh       # Wrapper for the Python initializer
+│       ├── inspect-db.py    # CLI evidence for schema and stored records
 │       └── init.sql         # Product table schema
 ├── terraform/
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── outputs.tf
+│   ├── terraform.tfvars.example
+│   ├── tests/provisioning.tftest.hcl
 │   └── deploy.sh
 ├── tests/
-│   └── test_configuration.py
+│   ├── test_configuration.py
+│   └── test_storage.py
 └── README.md
 ```
 
 Local credentials, environment files, variable value files, and Terraform state are not part of the setup templates.
 
-##  Tech Stack
+## Tech Stack
 
 - **Infrastructure as code:** Terraform
 - **Cloud provider:** Microsoft Azure
@@ -51,22 +58,25 @@ Local credentials, environment files, variable value files, and Terraform state 
 - **Configuration loading:** `python-dotenv`
 - **Version control:** Git/GitHub
 
-##  Provisioned Azure Resources
+## Provisioned Azure Resources
 
 - Resource group
 - Azure SQL logical server and database with the Basic SKU
 - Standard storage account with locally redundant storage (LRS)
-- SQL firewall rule named `AllowAzure`
+- Private Blob container
+- SQL firewall rule named `AllowLabClient`, limited to one client IPv4 address
 
-The Terraform configuration does not create a Blob container. A container must exist separately for uploads to work. The SQL firewall rule allows connections from Azure services; a local client may require an additional firewall rule. The database disables zone redundancy, and the application constructs image URLs without signed access tokens. Image display depends on the container's access configuration.
+Anonymous Blob access is disabled at the account and container levels. The application downloads private images using its storage connection string. Stored URLs remain unsigned: opening one directly without credentials should not return the image.
 
-##  Getting Started
+SQL access is restricted to `client_ip_address`. Update this input and review another plan if your public IP changes. Application hosting and private network endpoints are outside this phase.
+
+## Getting Started
 
 ### Requirements and Local Installation
 
 - Python 3.12 (local verification used Python 3.12.3 on Linux)
 - An Azure subscription with permission to create the lab resources
-- Terraform installed ([download](https://www.terraform.io/downloads.html))
+- Terraform 1.10 or later, below 2.0 ([download](https://www.terraform.io/downloads.html))
 - Azure CLI installed and authenticated for provisioning
 
 Run these commands from the repository root:
@@ -82,25 +92,54 @@ cp app/.env.example app/.env
 
 The dependency list pins the complete set installed during phase 1. The Python initializer uses the same client as the application, so ODBC and `sqlcmd` are not required. Edit `app/.env` locally; never commit credentials.
 
-### 1. Provision the Infrastructure
+### 1. Prepare and Review the Infrastructure
 
-From the lab directory, run the commands below after supplying Terraform inputs. Provisioning will be completed and validated in phase 2. Provide values for `sql_server_name`, `sql_db_name`, `sql_admin`, `sql_password`, and `storage_account_name` through Terraform inputs. The declared `storage_account_name` variable is not used by the storage resource, which generates its name from `prefix` and a random suffix. The `suffix` variable is also unused.
+AzureRM 4.x and Random 3.x are declared explicitly, with exact versions recorded in the lockfile. The subscription ID is a Terraform input; see the [AzureRM provider documentation](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/index).
+
+Verify the subscription before preparing a live plan:
 
 ```bash
-cd terraform
-
-# Initialize Terraform
-terraform init
-
-# Review the execution plan
-terraform plan -out tfplan
-
-# Apply the reviewed plan
-terraform apply "tfplan"
-cd ..
+az login
+az account list --query "[].{Name:name,Id:id,State:state}" --output table
+az account set --subscription "YOUR_STUDENT_SUBSCRIPTION_ID"
+az account show --query "{Name:name,Id:id,State:state}" --output table
 ```
 
-The configuration defaults to `eastus2`. The included deployment script loads a local environment file and prompts before applying its plan; `outputs.tf` is empty, so connection values must be obtained from the created resources.
+Confirm the student offer and remaining credit in the Azure portal. Azure SQL availability depends on both the subscription and region. The live validation documented below succeeded with the Basic SKU in `brazilsouth`.
+
+From the lab directory, keep the local variable file outside the repository until the Git ignore rules are revised in phase 4:
+
+```bash
+LAB_VARS=$(mktemp /tmp/lab1-phase2.XXXXXX.tfvars)
+cp terraform/terraform.tfvars.example "$LAB_VARS"
+```
+
+Edit that file with the real subscription ID, a globally unique SQL server name, an allowed region, and your actual public IPv4 address. The example IP is a documentation placeholder. All Azure resources use the same `location`, which defaults to `brazilsouth`. This region was validated with the Azure for Students subscription used for this lab. The storage account name is optional: omitting it uses `prefix` plus a random suffix. When an explicit name is supplied, Terraform does not create an unused random resource.
+
+Read the SQL password without displaying it or placing it in shell history:
+
+```bash
+read -rsp "SQL administrator password: " TF_VAR_sql_password
+printf '\n'
+export TF_VAR_sql_password
+terraform -chdir=terraform init
+terraform -chdir=terraform fmt -check -recursive
+terraform -chdir=terraform validate
+terraform -chdir=terraform test
+terraform -chdir=terraform plan -var-file="$LAB_VARS" -out=/tmp/lab1-phase2.tfplan
+```
+
+Terraform tests use mocked providers and do not create Azure resources. Review the new live plan before applying it. Do not apply the historical `tfplan` or `plan.tfout` files committed in this repository. Use the direct commands here; `deploy.sh` will be revised in phase 4.
+
+After accepting the plan:
+
+```bash
+terraform -chdir=terraform apply /tmp/lab1-phase2.tfplan
+terraform -chdir=terraform output
+unset TF_VAR_sql_password
+```
+
+A fresh deployment with an explicit storage account name should create six resources: resource group, storage account, private container, SQL server, SQL database, and client firewall rule. When the storage name is omitted, Terraform also creates a random suffix. Existing state can produce a different plan. The SQL password is passed through a write-only argument and is not persisted in the plan or state. Storage access keys and other sensitive resource attributes can still exist in Terraform state, so keep state and saved plans local.
 
 ### 2. Configure Environment Variables
 
@@ -112,9 +151,30 @@ Edit `app/.env` using the values for your resources. Application and initializer
 | `SQL_DATABASE` | Database name |
 | `SQL_USERNAME` | SQL login |
 | `SQL_PASSWORD` | SQL password |
-| `AZURE_STORAGE_CONNECTION_STRING` | Storage connection string for uploads |
-| `AZURE_STORAGE_CONTAINER_NAME` | Existing Blob container name |
+| `AZURE_STORAGE_CONNECTION_STRING` | Storage connection string for uploads and private image reads |
+| `AZURE_STORAGE_CONTAINER_NAME` | Provisioned private Blob container name |
 | `AZURE_STORAGE_ACCOUNT_NAME` | Storage account used to construct image URLs |
+
+Map the nonsecret Terraform outputs to the local environment:
+
+| Output | Environment variable |
+| ------ | -------------------- |
+| `sql_server_fqdn` | `SQL_SERVER` |
+| `sql_database_name` | `SQL_DATABASE` |
+| `sql_username` | `SQL_USERNAME` |
+| `storage_account_name` | `AZURE_STORAGE_ACCOUNT_NAME` |
+| `storage_container_name` | `AZURE_STORAGE_CONTAINER_NAME` |
+
+Use the provisioning password for `SQL_PASSWORD`. Retrieve the storage connection string locally from the portal or this command, using the resource names from the outputs:
+
+```bash
+az storage account show-connection-string \
+  --resource-group "YOUR_RESOURCE_GROUP" \
+  --name "YOUR_STORAGE_ACCOUNT" \
+  --query connectionString --output tsv
+```
+
+Copy the result to `app/.env`. Do not paste it into chat or validation reports. Terraform outputs do not expose passwords, keys, or connection strings; state still contains sensitive resource values.
 
 Both programs load `app/.env` through an absolute path derived from their source location. Process environment values take precedence. Legacy `SQL_SERVER_NAME`, `SQL_DB_NAME`, and `SQL_USER` remain accepted as fallbacks; use the canonical names above for new configurations. The legacy server name must omit the domain suffix.
 
@@ -138,9 +198,9 @@ From the lab directory, with the virtual environment active:
 python -m streamlit run app/main.py
 ```
 
-Open the local URL printed by Streamlit. Registration and listing require a reachable, initialized SQL database. Image uploads additionally require a configured storage account and an existing container.
+Open the local URL printed by Streamlit. Registration and listing require a reachable, initialized SQL database. Image uploads and display require the provisioned private container and matching storage credentials.
 
-## 🖥️ Application Features
+## Application Features
 
 - Register products with a name, description, price, and optional image
 - Upload PNG and JPEG images to Azure Blob Storage
@@ -152,42 +212,75 @@ Open the local URL printed by Streamlit. Registration and listing require a reac
 
 The application interface, database fields, and script messages retain their original Portuguese names.
 
-## 🎯 Results and Demonstration
+## Results and Demonstration
 
-The screenshots below document the original lab results. They illustrate resource creation and product storage; they do not establish deployment timing, production readiness, restricted network access, or availability guarantees.
+The screenshots below were regenerated from the phase 2 deployment in `brazilsouth`. They provide evidence of the deployed resources, database schema, and application workflow. The accompanying CLI commands reproduce the SQL record and private Blob queries without requiring additional screenshots. These results do not represent availability guarantees or production readiness.
 
 ### 1. Infrastructure Provisioned with Terraform
 
+List the resources tracked by Terraform:
+
+```bash
+terraform -chdir=terraform state list
+```
+
+Query the deployed Azure resources directly from the resource group:
+
+```bash
+az resource list \
+  --resource-group "$(terraform -chdir=terraform output -raw resource_group_name)" \
+  --query "sort_by([].{Name:name,Type:type,Location:location}, &Type)" \
+  --output table
+```
+
+The Terraform state includes the resource group and private Blob container. The Azure query provides independent evidence of the resources currently available through Azure Resource Manager.
+
 <figure style="text-align: center;">
-    <img src="./docs/image/00-figure-azure-recurse.png" alt="Resources created with Terraform" width="600">
-    <figcaption>Figure 1: Azure resources created with Terraform, including the resource group, SQL server, database, and storage account.</figcaption>
+    <img src="./docs/image/00-figure-azure-recurse.png" alt="Azure resource inventory for the e-commerce lab" width="859">
+    <figcaption>Figure 1: Live Azure Resource Manager inventory showing the SQL logical server, automatically created master database, application database, and storage account in Brazil South.</figcaption>
 </figure>
 
 ### 2. Database Schema
 
+Inspect the deployed `dbo.Produtos` schema through `INFORMATION_SCHEMA.COLUMNS`:
+
+```bash
+python app/database/inspect-db.py schema
+```
+
+The command uses the same `app/.env` or process environment configuration as the application and does not print credentials.
+
 <figure style="text-align: center;">
-    <img src="./docs/image/01-figure-azure-bd.png" alt="Product table created" width="600">
-    <figcaption>Figure 2: Structure of the 'Produtos' table created using the database initialization script.</figcaption>
+    <img src="./docs/image/01-figure-azure-bd.png" alt="Produtos table schema returned by the database inspection command" width="500">
+    <figcaption>Figure 2: Live `INFORMATION_SCHEMA.COLUMNS` query showing the columns, data types, limits, and nullability of `dbo.Produtos`.</figcaption>
 </figure>
 
 ### 3. Application Interface
 
 <figure style="text-align: center;">
-    <img src="./docs/image/02-figure-app-result.png" alt="Application interface" width="600">
-    <figcaption>Figure 3: Streamlit interface for registering and viewing products.</figcaption>
+    <img src="./docs/image/02-figure-app-result.png" alt="Successful product registration and authenticated image display in Streamlit" width="758">
+    <figcaption>Figure 3: Successful Streamlit registration followed by product details and an image read from the private Blob container.</figcaption>
 </figure>
 
 ### 4. Stored Data and Images
 
-<figure style="text-align: center;">
-    <img src="./docs/image/03-figure-bd-result.png" alt="Database records" width="600">
-    <figcaption>Figure 4: Product records stored in Azure SQL Database after registration.</figcaption>
-</figure>
+Query the product records stored in Azure SQL Database:
 
-<figure style="text-align: center;">
-    <img src="./docs/image/04-figure-container-result.png" alt="Images in Blob Storage" width="600">
-    <figcaption>Figure 5: Product images stored in Azure Blob Storage.</figcaption>
-</figure>
+```bash
+python app/database/inspect-db.py products
+```
+
+List the image Blobs stored in the private container:
+
+```bash
+az storage blob list \
+  --container-name "$AZURE_STORAGE_CONTAINER_NAME" \
+  --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
+  --query "[].{Name:name,SizeBytes:properties.contentLength,ContentType:properties.contentSettings.contentType,Modified:properties.lastModified}" \
+  --output table
+```
+
+These commands provide live CLI evidence for the relational records and their corresponding image objects. Keep the connection string in an environment variable and never include it in screenshots or command output.
 
 ## Engineering Concepts Demonstrated
 
@@ -195,7 +288,7 @@ This lab demonstrates infrastructure as code, use of managed Azure data services
 
 ## Testing and Observability
 
-Run the offline configuration and initializer tests from the lab directory:
+Run the eight offline configuration, initializer, and storage tests from the lab directory:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -207,32 +300,54 @@ Phase 1 validates dependency installation, configuration errors, legacy variable
 
 | Phase | Scope | Status |
 | ----- | ----- | ------ |
-| 1 | Local installation, dependency versions, shared configuration, initializer paths, and setup documentation | Locally verified on Python 3.12.3; Azure integration pending |
-| 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Planned |
+| 1 | Local installation, dependency versions, shared configuration, initializer paths, and setup documentation | Verified on Python 3.12.3 |
+| 2 | Complete Terraform provisioning, connection outputs, network access, and image access | Validated locally and in Azure on October 2, 2026 |
 | 3 | Consistent SQL and Blob writes, field validation, and local JSON behavior | Planned |
 | 4 | Git ignore rules, generated artifacts, deployment error handling, and repeatable initialization | Planned |
-| 5 | Automated checks, Azure end-to-end validation, new evidence, and resource cleanup | Planned |
+| 5 | Automated checks, repeatable end-to-end validation, and resource cleanup | Planned |
 
-For the Azure validation phase, record the subscription offer, region, resource SKUs, execution date, test outcomes, and cleanup outcome. The screenshots above are historical evidence and have not been regenerated during phase 1.
+The screenshots above were regenerated after the successful phase 2 deployment.
 
-##  Maintenance and Future Improvements
+### Phase 2 Validation Procedure
 
-- [ ] Implement user authentication
-- [ ] Add product editing and deletion
-- [ ] Implement product categories
-- [ ] Add product search and filtering
+1. Run the Python tests, Terraform formatting check, validation, and six mocked Terraform tests.
+2. Verify the student subscription and review a newly generated plan; share its resource summary and redacted errors before applying.
+3. After plan review, apply and confirm the container is private and SQL access matches the client IP.
+4. Configure `app/.env`, initialize the database once, and start Streamlit. Register a product with an image and verify that listing displays the record and image.
+5. Open the stored Blob URL without credentials: it must not return the image. Confirm that the same image renders inside Streamlit.
 
-Remaining infrastructure, data consistency, and automation improvements are tracked in the phase table above.
+The application uses the authenticated download described in the [Azure Blob client documentation](https://learn.microsoft.com/python/api/azure-storage-blob/azure.storage.blob.blobclient).
 
-##  Contributing
+### Phase 2 Validation Result
+
+Live validation completed on October 2, 2026, using an Azure for Students subscription in `brazilsouth`:
+
+- Terraform created six resources in one apply: resource group, Standard LRS storage account, private Blob container, Azure SQL logical server, Basic SQL database, and a client-specific SQL firewall rule.
+- Database initialization completed through `pymssql` using the provisioned SQL endpoint.
+- Streamlit inserted and listed a product stored in Azure SQL Database.
+- The application uploaded an image to the private `products` container and rendered it through an authenticated server-side download.
+- An anonymous request to the same Blob URL returned HTTP `409`, confirming that public Blob access was disabled.
+- Eight Python tests and six mocked Terraform tests passed locally.
+
+The validation also exposed a known phase 3 issue: descriptions longer than the `NVARCHAR(255)` database column fail during insertion after the image upload has already occurred. The current application can therefore leave an orphaned Blob and a local JSON entry after a failed SQL write. Field validation and consistent failure handling remain assigned to phase 3.
+
+## Troubleshooting Partial Deployments
+
+If creation fails with `RequestDisallowedByAzure`, inspect the subscription's Azure Policy assignments and select an allowed region. This lab intentionally deploys the resource group, Storage, and SQL in one region.
+
+If SQL creation reports a missing administrator password, verify locally that `TF_VAR_sql_password` contains a nonempty value and that a local variable file does not override it with an empty password. The configuration rejects empty passwords during planning. Generate a new plan after fixing the inputs; do not reuse the previously applied plan.
+
+If SQL returns `ProvisioningDisabled` in a policy-allowed region, the SQL service has a separate regional restriction. Select another region allowed by the subscription and rebuild the lab there, or follow Microsoft's [SQL regional access request procedure](https://learn.microsoft.com/en-us/azure/azure-sql/database/quota-increase-request#enable-subscription-access-to-a-region). A successful Terraform plan does not prove that SQL provisioning is enabled in a region.
+
+## Contributing
 
 Contributions are welcome through issues and pull requests.
 
-##  License
+## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-##  Author
+## Author
 
 **Jacivaldo Carvalho**
 Telecommunications Engineer | DevOps | SRE | Networking

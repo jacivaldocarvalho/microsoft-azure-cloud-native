@@ -1,0 +1,12 @@
+# Copy to a LOCAL, untracked variable file; replace placeholders.
+subscription_id        = "00000000-0000-0000-0000-000000000000"
+location               = "brazilsouth"
+resource_group_name    = "rg-ecommerce-lab"
+prefix                 = "ecommerce"
+sql_server_name        = "replace-with-a-globally-unique-server-name"
+sql_db_name            = "ecommerce"
+sql_admin              = "labadmin"
+client_ip_address      = "203.0.113.10" # Replace with your actual public IPv4.
+storage_container_name = "products"
+# storage_account_name = "youruniquestorageaccount" # Optional
+# Supply sql_password through TF_VAR_sql_password; do not store it here.

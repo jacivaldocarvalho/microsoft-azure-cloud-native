@@ -5,6 +5,7 @@ import uuid
 import json
 import os
 from config import sql_settings
+from storage import download_product_image
 #import pandas as pd
 
 
@@ -107,8 +108,13 @@ def list_produtos_screen():
                     st.write(f"**Descrição:** {product['descricao']}")
                     st.write(f"**Preço:** R$ {product['preco']:.2f}")
                     if product["imagem_url"]:
-                        html_img = f'<img src="{product["imagem_url"]}" width="300" height="200" alt="Imagem do produto">'
-                        st.markdown(html_img, unsafe_allow_html=True)
+                        try:
+                            image = download_product_image(
+                                product["imagem_url"], CONNECTION_STRING, ACCOUNT_NAME, CONTAINER_NAME
+                            )
+                            st.image(image, width=300)
+                        except Exception as exc:
+                            st.error(f"Erro ao carregar imagem: {exc}")
                     st.markdown("---")
                 # A cada 'cards_por_linha' produtos, se ainda houver produtos, cria novas colunas
                 if (i + 1) % cards_por_linha == 0 and (i + 1) < len(products):
